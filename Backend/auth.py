@@ -1,0 +1,151 @@
+
+from passlib.context import CryptContext
+from jose import jwt
+from datetime import datetime, timedelta
+from fastapi import Depends, HTTPException
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+
+
+# =====================================================
+# PASSWORD HASHING
+# =====================================================
+
+pwd_context = CryptContext(
+    schemes=["bcrypt"],
+    deprecated="auto"
+)
+
+
+# =====================================================
+# JWT SETTINGS
+# =====================================================
+
+SECRET_KEY = "jobportal-secret-key"
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 30
+
+
+# =====================================================
+# HTTP BEARER AUTHENTICATION
+# =====================================================
+
+security = HTTPBearer()
+
+
+# =====================================================
+# HASH PASSWORD
+# =====================================================
+
+def hash_password(password: str):
+
+    return pwd_context.hash(
+        password
+    )
+
+
+# =====================================================
+# VERIFY PASSWORD
+# =====================================================
+
+def verify_password(
+    plain_password: str,
+    hashed_password: str
+):
+
+    return pwd_context.verify(
+        plain_password,
+        hashed_password
+    )
+
+
+# =====================================================
+# CREATE JWT TOKEN
+# =====================================================
+
+def create_access_token(data: dict):
+
+    to_encode = data.copy()
+
+    expire = datetime.utcnow() + timedelta(
+        minutes=ACCESS_TOKEN_EXPIRE_MINUTES
+    )
+
+    to_encode.update({
+        "exp": expire
+    })
+
+    token = jwt.encode(
+        to_encode,
+        SECRET_KEY,
+        algorithm=ALGORITHM
+    )
+
+    return token
+
+
+# =====================================================
+# GET CURRENT USER FROM JWT
+# =====================================================
+
+def get_current_user(
+    credentials: HTTPAuthorizationCredentials = Depends(
+        security
+    )
+):
+
+    token = credentials.credentials
+
+    try:
+
+        payload = jwt.decode(
+            token,
+            SECRET_KEY,
+            algorithms=[ALGORITHM]
+        )
+
+        user_id = payload.get("sub")
+        role = payload.get("role")
+
+        if user_id is None:
+
+            raise HTTPException(
+                status_code=401,
+                detail="Invalid token"
+            )
+
+        return {
+            "user_id": int(user_id),
+            "role": role
+        }
+
+    except Exception:
+
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid or expired token"
+        )
+
+
+# =====================================================
+# ROLE-BASED AUTHORIZATION
+# =====================================================
+
+def require_role(required_role: str):
+
+    def role_checker(
+        current_user: dict = Depends(
+            get_current_user
+        )
+    ):
+
+        if current_user["role"] != required_role:
+
+            raise HTTPException(
+                status_code=403,
+                detail="Access denied"
+            )
+
+        return current_user
+
+    return role_checker
+
